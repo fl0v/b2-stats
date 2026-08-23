@@ -55,9 +55,11 @@ renders `stats.format_table`.
 - **`stats.py`** — `BucketStats` dataclass and `collect(config)`, which ties
   `b2_client` + `pricing` together. Whether `total_bytes_incl_versions`
   equals `current_bytes` or a full version-history sum depends on
-  `config.include_all_versions`. Also owns `human_size()` and
-  `format_table()` — the single table-rendering helper shared by both the
-  CLI and the tray popup, so they always render identically.
+  `config.include_all_versions`. Also owns `human_size()`, `totals()`
+  (per-column sums across buckets), and `format_table()` (the CLI's
+  monospace text rendering) — `tray.py` uses the same `BucketStats`/`totals()`
+  data but renders it as a native `ttk.Treeview` table instead of reusing
+  `format_table()`'s text output.
 - **`cache.py`** — reads/writes a JSON file (`{fetched_at_epoch, buckets}`)
   next to the config file, keyed by TTL (`cache_ttl_minutes`). This exists
   because listing every file/version in a bucket is a paginated, rate-limited
@@ -74,7 +76,15 @@ renders `stats.format_table`.
   background thread and `tkinter` on the main thread, communicating via a
   `queue.Queue` (`_action_queue`) polled with `root.after` — tkinter is not
   thread-safe, so menu callbacks from pystray's thread must never touch Tk
-  widgets directly.
+  widgets directly. The popup is a `ttk.Treeview` table (bold `"total"` tag
+  on the total row) plus a toolbar (Refresh button + status label), built
+  once in `_ensure_window()` and reused across shows (closing it just
+  `withdraw()`s the window, it isn't destroyed). `_display_pending` gates
+  whether a `"stats_ready"` queue message actually touches the window/pops
+  an error dialog — it's only `True` while a user-initiated fetch (button/
+  menu click) is in flight, so the silent background prefetch and the
+  scheduled TTL refresh never pop the window open or show a dialog on their
+  own; they just warm the cache and update the tray tooltip.
 
 ### Testing patterns
 

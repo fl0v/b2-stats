@@ -7,14 +7,14 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import scrolledtext
+from tkinter import messagebox, ttk
 
 import pystray
-from PIL import Image
+from PIL import Image, ImageTk
 
 from . import cache
 from .config import load_config
-from .stats import format_table, human_size, totals
+from .stats import human_size, totals
 
 _action_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
 
@@ -43,13 +43,25 @@ def _make_icon_image() -> Image.Image:
         return Image.open(f).convert("RGBA").copy()
 
 
+_COLUMNS = ("bucket", "files", "current", "incl_versions", "cost")
+_HEADINGS = {
+    "bucket": ("Bucket", 220, "w"),
+    "files": ("Files", 80, "e"),
+    "current": ("Current size", 110, "e"),
+    "incl_versions": ("Size incl. versions", 150, "e"),
+    "cost": ("Est. $/month", 100, "e"),
+}
+
+
 class TrayApp:
     def __init__(self, config_path: str | None = None):
         self.config_path = config_path
         self.root = tk.Tk()
         self.root.withdraw()
-        self.text_window: tk.Toplevel | None = None
-        self.text_widget: scrolledtext.ScrolledText | None = None
+        self.window: tk.Toplevel | None = None
+        self.tree: ttk.Treeview | None = None
+        self.status_var: tk.StringVar | None = None
+        self.refresh_btn: ttk.Button | None = None
         self._fetch_lock = threading.Lock()
         self._fetch_thread: threading.Thread | None = None
         self._display_pending = False
@@ -82,10 +94,14 @@ class TrayApp:
                     self._show_stats(force_refresh=bool(arg))
                 elif action == "stats_ready":
                     if self._display_pending:
-                        self._display_text(str(arg))
+                        bucket_stats, fetched_at, error = arg
+                        if error:
+                            self._show_error(error)
+                        else:
+                            self._populate(bucket_stats, fetched_at)
                         self._display_pending = False
-                    # else: a silent background prefetch finished - just leave the
-                    # cache warm, don't pop the window open on its own.
+                    # else: a silent background prefetch/scheduled refresh finished -
+                    # just leave the cache warm, don't pop the window open on its own.
                 elif action == "quit":
                     self.icon.stop()
                     self.root.quit()
@@ -98,12 +114,13 @@ class TrayApp:
         try:
             config = load_config(self.config_path)
         except Exception as e:  # noqa: BLE001 - surface any failure in the popup itself
-            self._display_text(f"Error fetching B2 stats:\n{e}")
+            self._show_error(str(e))
             return
 
         self._display_pending = True
+        self._raise_window()
         if self._start_fetch(config, force_refresh):
-            self._display_text("Fetching B2 stats (scanning buckets)... this may take a while.")
+            self._show_loading()
         else:
             self._fetch_and_queue(config, force_refresh)
 
@@ -133,18 +150,18 @@ class TrayApp:
         self._start_fetch(config, force_refresh=False)
 
     def _fetch_and_queue(self, config, force_refresh: bool) -> None:
+        bucket_stats = fetched_at = error = None
         try:
             bucket_stats, fetched_at, _was_cached = cache.get_or_fetch(config, force=force_refresh)
-            text = format_table(bucket_stats, fetched_at)
             _files, _current, total_all, total_cost = totals(bucket_stats)
             self._set_tooltip(
                 f"{_TOOLTIP_BASE} — {human_size(total_all)} · ${total_cost:.2f}/mo "
                 f"(as of {time.strftime('%H:%M')})"
             )
         except Exception as e:  # noqa: BLE001 - surface any failure in the popup itself
-            text = f"Error fetching B2 stats:\n{e}"
+            error = str(e)
             self._set_tooltip(f"{_TOOLTIP_BASE} — refresh failed")
-        _action_queue.put(("stats_ready", text))
+        _action_queue.put(("stats_ready", (bucket_stats, fetched_at, error)))
 
     def _set_tooltip(self, text: str) -> None:
         try:
@@ -152,22 +169,90 @@ class TrayApp:
         except Exception:  # noqa: BLE001 - tooltip is cosmetic, never fatal
             pass
 
-    def _display_text(self, text: str) -> None:
-        if self.text_window is None or not self.text_window.winfo_exists():
-            self.text_window = tk.Toplevel(self.root)
-            self.text_window.title("B2 Stats")
-            self.text_widget = scrolledtext.ScrolledText(
-                self.text_window, width=90, height=20, font=("Courier New", 10)
-            )
-            self.text_widget.pack(fill="both", expand=True)
+    def _ensure_window(self) -> None:
+        if self.window is not None and self.window.winfo_exists():
+            return
 
-        self.text_widget.configure(state="normal")
-        self.text_widget.delete("1.0", tk.END)
-        self.text_widget.insert(tk.END, text)
-        self.text_widget.configure(state="disabled")
-        self.text_window.deiconify()
-        self.text_window.lift()
-        self.text_window.focus_force()
+        self.window = tk.Toplevel(self.root)
+        self.window.title("B2 Stats")
+        self.window.geometry("700x360")
+        self.window.minsize(520, 240)
+        self.window.protocol("WM_DELETE_WINDOW", self.window.withdraw)
+        # Keep a reference on self - Tk drops PhotoImages with no surviving
+        # Python reference even while still displayed.
+        self._window_icon = ImageTk.PhotoImage(_make_icon_image())
+        self.window.iconphoto(False, self._window_icon)
+
+        toolbar = ttk.Frame(self.window, padding=8)
+        toolbar.pack(fill="x")
+        self.refresh_btn = ttk.Button(
+            toolbar, text="Refresh", command=lambda: self._show_stats(force_refresh=True)
+        )
+        self.refresh_btn.pack(side="left")
+        self.status_var = tk.StringVar(value="")
+        ttk.Label(toolbar, textvariable=self.status_var).pack(side="left", padx=12)
+
+        tree_frame = ttk.Frame(self.window, padding=(8, 0, 8, 8))
+        tree_frame.pack(fill="both", expand=True)
+
+        self.tree = ttk.Treeview(tree_frame, columns=_COLUMNS, show="headings", selectmode="none")
+        for col, (label, width, anchor) in _HEADINGS.items():
+            self.tree.heading(col, text=label)
+            self.tree.column(col, width=width, anchor=anchor)
+        self.tree.tag_configure("total", font=("TkDefaultFont", 9, "bold"))
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        self.tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+    def _raise_window(self) -> None:
+        self._ensure_window()
+        self.window.deiconify()
+        self.window.lift()
+        self.window.focus_force()
+
+    def _show_loading(self) -> None:
+        self._ensure_window()
+        self.refresh_btn.state(["disabled"])
+        self.status_var.set("Fetching B2 stats (scanning buckets)... this may take a while.")
+
+    def _populate(self, bucket_stats, fetched_at: str) -> None:
+        self._ensure_window()
+        self.tree.delete(*self.tree.get_children())
+        for b in bucket_stats:
+            self.tree.insert(
+                "", "end",
+                values=(
+                    b.name,
+                    f"{b.file_count:,}",
+                    human_size(b.current_bytes),
+                    human_size(b.total_bytes_incl_versions),
+                    f"${b.estimated_monthly_cost:,.2f}",
+                ),
+            )
+        total_files, total_current, total_all, total_cost = totals(bucket_stats)
+        self.tree.insert(
+            "", "end",
+            values=(
+                "TOTAL",
+                f"{total_files:,}",
+                human_size(total_current),
+                human_size(total_all),
+                f"${total_cost:,.2f}",
+            ),
+            tags=("total",),
+        )
+        self.status_var.set(
+            f"As of {fetched_at} - cost is a storage-only estimate, not a bill"
+        )
+        self.refresh_btn.state(["!disabled"])
+
+    def _show_error(self, message: str) -> None:
+        self._raise_window()
+        self.status_var.set(f"Error: {message}")
+        self.refresh_btn.state(["!disabled"])
+        messagebox.showerror("B2 Stats", message, parent=self.window)
 
     def _scheduled_refresh(self) -> None:
         """Runs on the Tk main loop every _SCHEDULED_CHECK_SECONDS; auto-refreshes
