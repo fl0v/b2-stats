@@ -15,16 +15,35 @@ exactly — treat it as a directional number.
 python -m venv .venv
 source .venv/bin/activate   # or .venv\Scripts\activate on Windows
 pip install -e .
-cp config.example.yaml ~/.config/b2-stats/config.yaml   # Linux/macOS
-# or copy to %APPDATA%\b2-stats\config.yaml on Windows
 ```
 
 Or, on Linux/macOS, use the Makefile: `make install` (CLI/tray deps only) or
 `make dev-install` (adds pytest).
 
-Edit that config file with an application key from
-https://secure.backblaze.com/app_keys.htm (a read-only key with
-`listFiles` + `listBuckets` is enough).
+Then copy `config.example.yaml` to one of the locations below and fill in
+an application key.
+
+### Config file location
+
+Unless you pass `--config PATH` (or set `B2_STATS_CONFIG`), both the CLI and
+the tray app look for `config.yaml` in this order, using the first one that
+exists:
+
+1. Next to the running program (the folder containing `b2-stats-tray.exe`,
+   handy for a portable install)
+2. The current directory
+3. `~/.config/b2-stats/config.yaml` (or `%APPDATA%\b2-stats\config.yaml` on
+   Windows) — the recommended location
+4. `~/.b2-stats/config.yaml`
+
+If none of those exist, both apps print exactly which paths they checked
+and how to fix it.
+
+### Getting an application key
+
+Create one at https://secure.backblaze.com/app_keys.htm — a read-only key
+scoped to `listFiles` + `listBuckets` is enough. Backblaze's guide:
+https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys
 
 ## CLI
 

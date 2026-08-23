@@ -12,6 +12,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="b2-stats",
         description="Show per-bucket usage and estimated cost for Backblaze B2.",
+        epilog=(
+            "Without --config, looks for config.yaml next to the program, in the "
+            "current directory, then in ~/.config/b2-stats/ (or %APPDATA%\\b2-stats\\ "
+            "on Windows), then in ~/.b2-stats/."
+        ),
     )
     parser.add_argument("--config", metavar="PATH", help="Path to config.yaml")
     parser.add_argument(

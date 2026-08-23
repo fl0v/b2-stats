@@ -98,7 +98,15 @@ class TrayApp:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="b2-stats-tray", description="B2 stats tray icon app")
+    parser = argparse.ArgumentParser(
+        prog="b2-stats-tray",
+        description="B2 stats tray icon app",
+        epilog=(
+            "Without --config, looks for config.yaml next to the program, in the "
+            "current directory, then in ~/.config/b2-stats/ (or %APPDATA%\\b2-stats\\ "
+            "on Windows), then in ~/.b2-stats/."
+        ),
+    )
     parser.add_argument("--config", metavar="PATH", help="Path to config.yaml")
     args = parser.parse_args(argv)
 
