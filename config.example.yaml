@@ -1,0 +1,18 @@
+# Copy this file to config.yaml (in the same directory, or to the default
+# location for your OS — see README.md) and fill in your B2 application key.
+#
+# Create an application key at https://secure.backblaze.com/app_keys.htm
+# A read-only key scoped to "listFiles" + "listBuckets" is sufficient.
+
+application_key_id: "YOUR_KEY_ID"
+application_key: "YOUR_APPLICATION_KEY"
+
+# How long cached stats are considered fresh, in minutes. The tray app reuses
+# the cache instead of re-listing every file in every bucket on each click.
+cache_ttl_minutes: 360
+
+# Backblaze bills for every version of a file you keep (unless lifecycle
+# rules delete old versions). Set this to false to only count current
+# (latest) file versions, matching a bucket with versioning/lifecycle rules
+# that keep just one version.
+include_all_versions: true

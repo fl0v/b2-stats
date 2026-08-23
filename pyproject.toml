@@ -1,0 +1,27 @@
+[project]
+name = "b2-stats"
+version = "0.1.0"
+description = "Usage and estimated-cost stats for Backblaze B2 buckets, as a CLI and a Windows tray app"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31",
+    "PyYAML>=6.0",
+    "pystray>=0.19",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+b2-stats = "b2_stats.cli:main"
+b2-stats-tray = "b2_stats.tray:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["b2_stats*"]
