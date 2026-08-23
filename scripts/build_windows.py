@@ -62,7 +62,7 @@ def main() -> int:
         # that backend and the exe fails at runtime.
         "--collect-all",
         "pystray",
-        str(REPO_ROOT / "b2_stats" / "tray.py"),
+        str(REPO_ROOT / "scripts" / "tray_entry.py"),
     ]
     print("Running:", " ".join(cmd))
     return subprocess.call(cmd, cwd=REPO_ROOT)
