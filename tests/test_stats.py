@@ -68,22 +68,62 @@ def test_collect_uses_include_all_versions_flag(
     )
 
     with mock.patch.object(b2_client, "authorize", return_value=fake_auth), \
-         mock.patch.object(b2_client, "list_buckets", return_value=fake_buckets), \
+         mock.patch.object(
+             b2_client, "list_buckets", return_value=fake_buckets), \
          mock.patch.object(
              b2_client, "iter_file_names",
              side_effect=lambda auth, bucket_id: iter(fake_current_files[bucket_id]),
-         ), \
+         ) as names_mock, \
          mock.patch.object(
              b2_client, "iter_file_versions",
              side_effect=lambda auth, bucket_id: iter(fake_all_versions[bucket_id]),
          ):
         result = stats.collect(config)
 
+    # current_bytes/file_count must come from the single iter_file_versions pass,
+    # not a separate iter_file_names call - see _bucket_stats.
+    names_mock.assert_not_called()
     by_name = {b.name: b for b in result}
     assert by_name["backups"].file_count == 2
     assert by_name["backups"].current_bytes == 7 * 1024**3
     assert by_name["backups"].total_bytes_incl_versions == 8 * 1024**3
     assert by_name["photos"].current_bytes == by_name["photos"].total_bytes_incl_versions
+
+
+def test_collect_excludes_deleted_files_from_current_bytes(fake_auth, fake_buckets):
+    config = Config(
+        application_key_id="id",
+        application_key="key",
+        cache_ttl_minutes=360,
+        include_all_versions=True,
+        cache_path=None,
+    )
+    versions = {
+        "b1": [
+            # newest version of doc.txt is a hide marker: file was deleted, so
+            # it must not count towards file_count/current_bytes even though
+            # older versions still take up storage and count towards the total.
+            b2_client.FileEntry("doc.txt", 0, "hide"),
+            b2_client.FileEntry("doc.txt", 3 * 1024**3, "upload"),
+            b2_client.FileEntry("live.txt", 1 * 1024**3, "upload"),
+        ],
+        "b2": [],
+    }
+
+    with mock.patch.object(b2_client, "authorize", return_value=fake_auth), \
+         mock.patch.object(b2_client, "list_buckets", return_value=fake_buckets), \
+         mock.patch.object(b2_client, "iter_file_names") as names_mock, \
+         mock.patch.object(
+             b2_client, "iter_file_versions",
+             side_effect=lambda auth, bucket_id: iter(versions[bucket_id]),
+         ):
+        result = stats.collect(config)
+
+    names_mock.assert_not_called()
+    backups = next(b for b in result if b.name == "backups")
+    assert backups.file_count == 1
+    assert backups.current_bytes == 1 * 1024**3
+    assert backups.total_bytes_incl_versions == 4 * 1024**3
 
 
 def test_collect_current_only_when_versions_disabled(

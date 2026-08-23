@@ -33,6 +33,16 @@ def _to_bucket_stats(raw: list[dict]) -> list[stats_module.BucketStats]:
     return [stats_module.BucketStats(**b) for b in raw]
 
 
+def is_fresh(config: Config) -> bool:
+    """True if a cache file exists and is within its TTL (i.e. get_or_fetch(force=False)
+    would return instantly without hitting the B2 API)."""
+    cached = _read_cache(config.cache_path)
+    if cached is None:
+        return False
+    age_minutes = (time.time() - cached["fetched_at_epoch"]) / 60
+    return age_minutes <= config.cache_ttl_minutes
+
+
 def get_or_fetch(config: Config, force: bool = False) -> tuple[list[stats_module.BucketStats], str, bool]:
     """Returns (bucket_stats, fetched_at_iso, was_cached)."""
     now = time.time()

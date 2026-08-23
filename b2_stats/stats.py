@@ -19,18 +19,29 @@ class BucketStats:
 
 
 def _bucket_stats(auth: b2_client.AuthContext, bucket: b2_client.Bucket, include_all_versions: bool) -> BucketStats:
-    file_count = 0
-    current_bytes = 0
-    for entry in b2_client.iter_file_names(auth, bucket.bucket_id):
-        file_count += 1
-        current_bytes += entry.content_length
-
     if include_all_versions:
-        total_bytes = sum(
-            entry.content_length
-            for entry in b2_client.iter_file_versions(auth, bucket.bucket_id)
-        )
+        # b2_list_file_versions already returns every version of every file
+        # (current + hidden/deleted), grouped by file name with the newest
+        # version first within each group - so current_bytes/file_count can be
+        # derived from this single pass instead of separately re-listing
+        # current files via b2_list_file_names, halving the paginated calls.
+        file_count = 0
+        current_bytes = 0
+        total_bytes = 0
+        last_file_name = object()
+        for entry in b2_client.iter_file_versions(auth, bucket.bucket_id):
+            total_bytes += entry.content_length
+            if entry.file_name != last_file_name:
+                last_file_name = entry.file_name
+                if entry.action != "hide":
+                    file_count += 1
+                    current_bytes += entry.content_length
     else:
+        file_count = 0
+        current_bytes = 0
+        for entry in b2_client.iter_file_names(auth, bucket.bucket_id):
+            file_count += 1
+            current_bytes += entry.content_length
         total_bytes = current_bytes
 
     return BucketStats(
@@ -60,6 +71,16 @@ def human_size(num_bytes: int) -> str:
     return f"{size:.2f} PB"
 
 
+def totals(bucket_stats: list[BucketStats]) -> tuple[int, int, int, float]:
+    """(total_files, total_current_bytes, total_bytes_incl_versions, total_estimated_monthly_cost)."""
+    return (
+        sum(b.file_count for b in bucket_stats),
+        sum(b.current_bytes for b in bucket_stats),
+        sum(b.total_bytes_incl_versions for b in bucket_stats),
+        sum(b.estimated_monthly_cost for b in bucket_stats),
+    )
+
+
 def format_table(bucket_stats: list[BucketStats], fetched_at: str | None = None) -> str:
     headers = ("Bucket", "Files", "Current size", "Size incl. versions", "Est. $/month")
     rows = [
@@ -73,10 +94,7 @@ def format_table(bucket_stats: list[BucketStats], fetched_at: str | None = None)
         for b in bucket_stats
     ]
 
-    total_files = sum(b.file_count for b in bucket_stats)
-    total_current = sum(b.current_bytes for b in bucket_stats)
-    total_all = sum(b.total_bytes_incl_versions for b in bucket_stats)
-    total_cost = sum(b.estimated_monthly_cost for b in bucket_stats)
+    total_files, total_current, total_all, total_cost = totals(bucket_stats)
     rows.append((
         "TOTAL",
         str(total_files),

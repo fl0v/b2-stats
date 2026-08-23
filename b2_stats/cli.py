@@ -39,6 +39,9 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import b2_client
 
+    if args.refresh or not cache.is_fresh(config):
+        print("Fetching B2 stats (scanning buckets)... this may take a while.", file=sys.stderr)
+
     try:
         bucket_stats, fetched_at, was_cached = cache.get_or_fetch(config, force=args.refresh)
     except b2_client.B2Error as e:

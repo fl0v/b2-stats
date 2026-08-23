@@ -33,7 +33,13 @@ def fake_current_files() -> dict[str, list[b2_client.FileEntry]]:
 
 @pytest.fixture
 def fake_all_versions(fake_current_files) -> dict[str, list[b2_client.FileEntry]]:
+    """b2_list_file_versions groups all versions of the same file name together,
+    newest first - mirrored here so tests exercise the real ordering."""
     return {
-        "b1": fake_current_files["b1"] + [b2_client.FileEntry("a.zip", 1 * 1024**3, "upload")],
+        "b1": [
+            b2_client.FileEntry("a.zip", 5 * 1024**3, "upload"),
+            b2_client.FileEntry("a.zip", 1 * 1024**3, "upload"),
+            b2_client.FileEntry("b.zip", 2 * 1024**3, "upload"),
+        ],
         "b2": fake_current_files["b2"],
     }

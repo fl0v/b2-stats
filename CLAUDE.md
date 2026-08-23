@@ -15,9 +15,9 @@ figure. This constraint shapes most of the architecture below.
 ## Commands
 
 ```bash
-make install       # create .venv, install runtime deps (CLI + tray)
+make install       # create .venv (via uv) and install runtime deps (CLI + tray)
 make dev-install   # same, plus pytest
-make test          # run the full test suite (.venv/bin/pytest -q)
+make test          # run the full test suite (uv run pytest -q)
 make run           # run the CLI (b2-stats)
 make tray          # run the tray app (b2-stats-tray)
 make build-windows # build b2-stats-tray.exe (must run on Windows; see below)
@@ -25,11 +25,14 @@ make clean         # remove .venv, build/dist artifacts, caches
 make               # (bare) lists all targets with descriptions — self-documenting
 ```
 
-Run a single test: `.venv/bin/pytest tests/test_cache.py::test_force_refresh_bypasses_cache -q`
+Package management is via [uv](https://docs.astral.sh/uv/), not raw
+`pip`/`venv` — dependencies live in `pyproject.toml` (`dev`/`build` extras
+for pytest/PyInstaller), `uv sync` creates and populates `.venv`, and
+`uv run <cmd>` runs inside it without needing to activate anything. This
+sidesteps Debian/Ubuntu's PEP 668 externally-managed-environment restriction
+on bare `pip install` too.
 
-All tests mock `requests`/the B2 client — no network access or real
-credentials needed. On Debian/Ubuntu, don't `pip install` outside the venv
-(PEP 668 externally-managed-environment) — use `.venv/bin/pip` or `make`.
+Run a single test: `uv run pytest tests/test_cache.py::test_force_refresh_bypasses_cache -q`
 
 CLI flags: `--config PATH`, `--refresh` (bypass cache), `--json`.
 
@@ -103,5 +106,13 @@ renders `stats.format_table`.
   `ModuleNotFoundError` on launch.
 - PyInstaller cannot cross-compile: `scripts/build_windows.py` refuses to
   run unless `sys.platform == "win32"`. Build either on a real Windows
-  machine/venv, or via `.github/workflows/build-windows.yml` (runs on
-  `windows-latest`, triggered by a `v*` tag push or manual dispatch).
+  machine (`uv sync --extra build && uv run python scripts/build_windows.py`),
+  or via `.github/workflows/build-windows.yml` (runs on `windows-latest`,
+  triggered by a `v*` tag push or manual dispatch, using `astral-sh/setup-uv`).
+- The tray icon (`b2_stats/assets/backblaze_mark.png`) is a non-Python data
+  file, so it needs `--add-data` (`scripts/build_windows.py`) to end up in
+  the frozen exe, and `[tool.setuptools.package-data]` (`pyproject.toml`) to
+  end up in an installed wheel. `tray._asset_path()` resolves it via
+  `sys._MEIPASS` when frozen — deliberately not `importlib.resources`, whose
+  resource reader doesn't reliably support PyInstaller's onefile archive
+  loader.

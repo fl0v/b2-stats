@@ -14,6 +14,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+build = [
+    "pyinstaller>=6.0",
+]
 
 [project.scripts]
 b2-stats = "b2_stats.cli:main"
@@ -25,3 +28,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["b2_stats*"]
+
+[tool.setuptools.package-data]
+b2_stats = ["assets/*.png"]
